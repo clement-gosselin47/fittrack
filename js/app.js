@@ -127,7 +127,7 @@ function buildWeightChartSVG() {
   const x = d => padL + (diffDays(d, minDate) / xSpan) * (W - padL - padR);
   const y = v => padT + (1 - (v - minW) / (maxW - minW)) * (H - padT - padB);
 
-  const accent = cssVar('--accent', '#16A34A');
+  const accent = cssVar('--accent', '#111111');
   const muted3 = cssVar('--muted-3', '#D8E0DC');
   const mutedTxt = cssVar('--muted', '#5C6E67');
 
@@ -161,7 +161,7 @@ function collectExerciseHistory(exId) {
 
 function buildSimpleLineChartSVG(points) {
   if (points.length === 0) return '';
-  const accent = cssVar('--accent', '#16A34A');
+  const accent = cssVar('--accent', '#111111');
   const mutedTxt = cssVar('--muted', '#5C6E67');
   const W = 320, H = 140, padL = 30, padR = 10, padT = 10, padB = 20;
   const vals = points.map(p => p.val);
