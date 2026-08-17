@@ -1,6 +1,6 @@
 /* Service worker : mise en cache de l'app shell pour un fonctionnement 100% hors-ligne. */
 
-const CACHE_NAME = 'fittrack-cache-v2';
+const CACHE_NAME = 'fittrack-cache-v13';
 const ASSETS = [
   './',
   './index.html',
@@ -8,6 +8,7 @@ const ASSETS = [
   './css/styles.css',
   './js/storage.js',
   './js/calc.js',
+  './js/media.js',
   './js/app.js',
   './icons/icon-192.png',
   './icons/icon-512.png',

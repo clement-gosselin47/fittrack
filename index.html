@@ -70,6 +70,21 @@
 
       <div class="card">
         <div class="card-head">
+          <h2>Eau</h2>
+          <div class="row-inline">
+            <span class="badge" id="home-water-badge">0 L</span>
+            <button class="icon-btn-small" id="home-water-reset" aria-label="Réinitialiser l'eau du jour" title="Réinitialiser">↺</button>
+          </div>
+        </div>
+        <div class="progress-bar"><div class="progress-fill accent-2" id="home-water-bar"></div></div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" id="home-water-add250">+250 ml</button>
+          <button class="btn btn-secondary" id="home-water-add500">+500 ml</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
           <h2>Poids</h2>
           <span class="badge" id="home-weight-pct">0%</span>
         </div>
@@ -91,6 +106,15 @@
           <span class="muted">objectif <span id="home-cal-goal">— kcal</span></span>
         </div>
         <button class="btn btn-secondary btn-block" id="home-btn-repas">Ajouter un aliment</button>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Évolution</h2>
+          <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5Zm0 2a3 3 0 0 1 3 3v3H9V6a3 3 0 0 1 3-3Z"/></svg>
+        </div>
+        <p class="muted small">Photos et vidéos de ta progression, protégées par verrouillage.</p>
+        <button class="btn btn-secondary btn-block" id="home-btn-evolution">Voir mes photos</button>
       </div>
     </div>
   </section>
@@ -247,6 +271,9 @@
           <label>Objectif protéines (g/jour)
             <input type="number" id="p-prot" min="20" max="400">
           </label>
+          <label>Objectif eau (L/jour)
+            <input type="number" id="p-eau" min="0.5" max="8" step="0.1">
+          </label>
           <div class="suggest-box" id="suggest-box"></div>
           <button type="button" class="btn btn-secondary btn-block" id="btn-recalc">Recalculer la suggestion (BMR/TDEE)</button>
           <button type="submit" class="btn btn-primary btn-block">Enregistrer le profil</button>
@@ -260,12 +287,56 @@
       </div>
 
       <div class="card">
+        <h2>Sécurité</h2>
+        <p class="muted small">Protège la section Évolution (photos/vidéos) avec un code et/ou Face ID·Touch ID. Reste un écran de confidentialité local, pas un chiffrement.</p>
+        <div id="security-section"></div>
+      </div>
+
+      <div class="card">
         <h2>Sauvegarde</h2>
         <button class="btn btn-secondary btn-block" id="btn-export">Exporter mes données (JSON)</button>
         <label class="btn btn-secondary btn-block" for="input-import" id="label-import">Importer une sauvegarde</label>
         <input type="file" id="input-import" accept="application/json" hidden>
         <button class="btn btn-danger btn-block" id="btn-reset">Réinitialiser toutes les données</button>
       </div>
+    </div>
+  </section>
+
+  <!-- ===== ÉVOLUTION (photos/vidéos verrouillées) ===== -->
+  <section id="screen-evolution" class="screen">
+    <div class="page">
+      <button class="link-btn" id="evolution-back">← Retour</button>
+
+      <div class="card lock-card" id="evolution-lock-card">
+        <div class="lock-icon">🔒</div>
+        <h2>Section verrouillée</h2>
+        <p class="muted" id="evolution-lock-msg">Déverrouille pour voir tes photos et vidéos.</p>
+        <button class="btn btn-primary btn-block" id="btn-unlock-biometric">Déverrouiller avec Face ID / Touch ID</button>
+        <div class="pin-pad">
+          <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" class="pin-input" id="pin-input" placeholder="Code à 4 chiffres" autocomplete="off">
+          <button class="btn btn-secondary btn-block" id="btn-unlock-pin">Déverrouiller avec le code</button>
+        </div>
+        <p class="pin-error" id="pin-error"></p>
+      </div>
+
+      <div id="evolution-gallery" class="hidden">
+        <div class="card">
+          <div class="card-head">
+            <h2>Mes photos &amp; vidéos</h2>
+            <button class="icon-btn-small" id="btn-lock-now" title="Reverrouiller">🔒</button>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-secondary" id="btn-evo-camera">📷 Photo</button>
+            <button class="btn btn-secondary" id="btn-evo-gallery">🖼 Galerie</button>
+          </div>
+          <button class="btn btn-secondary btn-block" id="btn-evo-export">Exporter mes photos/vidéos</button>
+        </div>
+        <div class="evo-grid" id="evo-grid"></div>
+        <p class="history-empty hidden" id="evo-empty">Aucune photo ou vidéo pour l'instant.</p>
+      </div>
+
+      <input type="file" id="evo-camera-input" accept="image/*" capture="user" hidden>
+      <input type="file" id="evo-gallery-input" accept="image/*,video/*" multiple hidden>
     </div>
   </section>
 
@@ -301,6 +372,7 @@
 
 <script src="js/storage.js"></script>
 <script src="js/calc.js"></script>
+<script src="js/media.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

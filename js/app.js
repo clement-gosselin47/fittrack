@@ -90,7 +90,8 @@ function syncLogWithPlan(dateISO) {
   const plan = DATA.program[dayKey];
   plan.exercises.forEach(e => {
     if (!log.exercises[e.id]) {
-      log.exercises[e.id] = { done: false, sets: [], name: e.name, groupe: e.groupe };
+      const lastSets = findLastSetsByName(DATA, e.name, dateISO);
+      log.exercises[e.id] = { done: false, sets: lastSets || [], name: e.name, groupe: e.groupe };
     }
   });
 }
@@ -145,16 +146,22 @@ function buildWeightChartSVG() {
   </svg>`;
 }
 
-function collectExerciseHistory(exId) {
+function collectExerciseHistory(name) {
+  const target = (name || '').trim().toLowerCase();
   const rows = [];
   Object.keys(DATA.logs).sort().forEach(date => {
     const log = DATA.logs[date];
-    const e = log.exercises[exId];
-    if (e && e.sets && e.sets.length > 0) {
-      const weights = e.sets.map(s => Number(s.poids) || 0).filter(v => v > 0);
-      if (weights.length === 0) return;
-      rows.push({ date, sets: e.sets, top: Math.max(...weights) });
-    }
+    let sets = null;
+    Object.keys(log.exercises).forEach(exId => {
+      const e = log.exercises[exId];
+      if (!sets && e.done && e.sets && e.sets.length > 0 && (e.name || '').trim().toLowerCase() === target) {
+        sets = e.sets;
+      }
+    });
+    if (!sets) return;
+    const weights = sets.map(s => Number(s.poids) || 0).filter(v => v > 0);
+    if (weights.length === 0) return;
+    rows.push({ date, sets, top: Math.max(...weights) });
   });
   return rows;
 }
@@ -180,8 +187,8 @@ function buildSimpleLineChartSVG(points) {
   </svg>`;
 }
 
-function openExerciseHistory(exId, name) {
-  const rows = collectExerciseHistory(exId);
+function openExerciseHistory(name) {
+  const rows = collectExerciseHistory(name);
   const chart = rows.length
     ? buildSimpleLineChartSVG(rows.map(r => ({ date: r.date, val: r.top })))
     : '<p class="history-empty">Pas encore de séries enregistrées pour cet exercice.</p>';
@@ -280,6 +287,11 @@ function renderAccueil() {
   document.getElementById('home-cal-total').textContent = Math.round(totalKcal) + ' kcal';
   document.getElementById('home-cal-goal').textContent = calGoal + ' kcal';
   document.getElementById('home-cal-bar').style.width = Math.min(100, calGoal ? (totalKcal / calGoal) * 100 : 0) + '%';
+
+  const waterMl = log.water.ml || 0;
+  const waterGoal = profile.objectifEauMl || 2500;
+  document.getElementById('home-water-badge').textContent = (waterMl / 1000).toFixed(1) + ' L';
+  document.getElementById('home-water-bar').style.width = Math.min(100, waterGoal ? (waterMl / waterGoal) * 100 : 0) + '%';
 
   document.getElementById('home-streak-num').textContent = computeStreak();
 }
@@ -470,8 +482,10 @@ function renderReglages() {
   document.getElementById('p-activite').value = p.niveauActivite;
   document.getElementById('p-cal').value = p.objectifCalories;
   document.getElementById('p-prot').value = p.objectifProteines;
+  document.getElementById('p-eau').value = ((p.objectifEauMl || 2500) / 1000).toFixed(1);
   document.getElementById('suggest-box').classList.remove('visible');
   renderProgramEditor();
+  renderSecuritySection();
 }
 
 function renderProgramEditor() {
@@ -494,15 +508,243 @@ function renderProgramEditor() {
       </div>
       ${plan.exercises.map(e => `
         <div class="ex-edit-row">
-          <input type="text" data-action="ex-rename" data-day="${dayKey}" data-ex-id="${e.id}" value="${escapeHtml(e.name)}">
+          <div class="ex-name-wrap">
+            <input type="text" data-action="ex-rename" data-day="${dayKey}" data-ex-id="${e.id}" value="${escapeHtml(e.name)}">
+            <button type="button" class="btn-copy-ex" data-action="ex-copy" data-ex-id="${e.id}" title="Copier le nom"><svg class="icon-copy" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg><svg class="icon-check" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><polyline points="20 6 9 17 4 12"></polyline></svg></button>
+          </div>
           <select data-action="ex-groupe" data-day="${dayKey}" data-ex-id="${e.id}">
             ${GROUPES.map(g => `<option value="${g}" ${g === e.groupe ? 'selected' : ''}>${g}</option>`).join('')}
           </select>
-          <button type="button" data-action="ex-del" data-day="${dayKey}" data-ex-id="${e.id}">✕</button>
+          <button type="button" class="btn-del-ex" data-action="ex-del" data-day="${dayKey}" data-ex-id="${e.id}">✕</button>
         </div>`).join('')}
       <button type="button" class="btn-add-ex" data-action="add-ex" data-day="${dayKey}">+ Ajouter un exercice</button>
     </div>`;
   }).join('');
+}
+
+/* ===== Écran Évolution (photos/vidéos verrouillées) ===== */
+
+let evoUnlocked = false;
+let screenBeforeEvolution = 'accueil';
+let evoObjectUrls = [];
+
+function openEvolution() {
+  screenBeforeEvolution = currentScreen;
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-evolution').classList.add('active');
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  window.scrollTo(0, 0);
+  currentScreen = 'evolution';
+  evoUnlocked = false;
+  document.getElementById('pin-input').value = '';
+  document.getElementById('pin-error').textContent = '';
+  renderEvolutionGate();
+}
+
+function renderEvolutionGate() {
+  const lockCard = document.getElementById('evolution-lock-card');
+  const gallery = document.getElementById('evolution-gallery');
+  if (!DATA.security.enabled) {
+    lockCard.classList.add('hidden');
+    gallery.classList.remove('hidden');
+    evoUnlocked = true;
+    renderEvoGallery();
+    return;
+  }
+  lockCard.classList.remove('hidden');
+  gallery.classList.add('hidden');
+  const bioBtn = document.getElementById('btn-unlock-biometric');
+  if (DATA.security.webauthnId && isBiometricAvailable()) {
+    bioBtn.classList.remove('hidden');
+    attemptBiometricUnlock();
+  } else {
+    bioBtn.classList.add('hidden');
+  }
+}
+
+async function attemptBiometricUnlock() {
+  const ok = await verifyBiometric(DATA.security.webauthnId);
+  if (ok) unlockEvolution();
+}
+
+function unlockEvolution() {
+  evoUnlocked = true;
+  document.getElementById('evolution-lock-card').classList.add('hidden');
+  document.getElementById('evolution-gallery').classList.remove('hidden');
+  renderEvoGallery();
+}
+
+function revokeEvoObjectUrls() {
+  evoObjectUrls.forEach(u => URL.revokeObjectURL(u));
+  evoObjectUrls = [];
+}
+
+async function renderEvoGallery() {
+  const grid = document.getElementById('evo-grid');
+  const empty = document.getElementById('evo-empty');
+  revokeEvoObjectUrls();
+  let items = [];
+  try {
+    items = await getAllMediaItems();
+  } catch (e) {
+    items = [];
+  }
+  if (items.length === 0) {
+    grid.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  grid.innerHTML = items.map(item => {
+    const url = URL.createObjectURL(item.blob);
+    evoObjectUrls.push(url);
+    const media = item.type === 'video'
+      ? `<video src="${url}" muted playsinline></video><span class="evo-play">▶</span>`
+      : `<img src="${url}" alt="">`;
+    return `<div class="evo-item" data-action="evo-open" data-id="${item.id}">${media}<span class="evo-date">${fmtDateShortFR(item.date)}</span></div>`;
+  }).join('');
+}
+
+async function openEvoViewer(id) {
+  const items = await getAllMediaItems();
+  const item = items.find(i => i.id === id);
+  if (!item) return;
+  const url = URL.createObjectURL(item.blob);
+  evoObjectUrls.push(url);
+  const media = item.type === 'video'
+    ? `<video src="${url}" controls playsinline autoplay></video>`
+    : `<img src="${url}" alt="">`;
+  openModal(`
+    <div class="modal-title">${capitalize(fmtDateFR(item.date))}</div>
+    <div class="evo-viewer">
+      ${media}
+      <button type="button" class="btn btn-danger btn-block" id="btn-evo-delete" data-id="${item.id}">Supprimer</button>
+    </div>
+  `);
+  document.getElementById('btn-evo-delete').addEventListener('click', async () => {
+    if (!confirm('Supprimer cette photo/vidéo ? Cette action est définitive.')) return;
+    await deleteMediaItem(item.id);
+    closeModal();
+    renderEvoGallery();
+    showToast('Supprimé');
+  });
+}
+
+async function addEvoFiles(fileList) {
+  const files = Array.from(fileList);
+  for (const file of files) {
+    const type = file.type.startsWith('video') ? 'video' : 'photo';
+    await addMediaItem({ date: todayISO(), type, blob: file, mimeType: file.type });
+  }
+  renderEvoGallery();
+  showToast(files.length > 1 ? 'Ajoutés' : 'Ajouté');
+}
+
+async function exportEvoMedia() {
+  const items = await getAllMediaItems();
+  if (items.length === 0) { showToast('Rien à exporter'); return; }
+  const files = items.map((item, i) => {
+    const ext = item.type === 'video' ? (item.mimeType.split('/')[1] || 'mp4') : (item.mimeType.split('/')[1] || 'jpg');
+    return new File([item.blob], `fittrack-${item.date}-${i}.${ext}`, { type: item.mimeType });
+  });
+  if (navigator.canShare && navigator.canShare({ files })) {
+    try {
+      await navigator.share({ files, title: 'FitTrack — Évolution' });
+      return;
+    } catch (e) { /* annulé ou échoué, on retente en téléchargement */ }
+  }
+  files.forEach((file, i) => {
+    setTimeout(() => {
+      const url = URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, i * 300);
+  });
+  showToast('Téléchargement en cours…');
+}
+
+/* ===== Réglages : Sécurité ===== */
+
+function renderSecuritySection() {
+  const sec = DATA.security;
+  const container = document.getElementById('security-section');
+  if (!sec.enabled) {
+    container.innerHTML = `<button type="button" class="btn btn-primary btn-block" id="btn-security-enable">Activer le verrouillage</button>`;
+    document.getElementById('btn-security-enable').addEventListener('click', openPinSetupModal);
+    return;
+  }
+  const bioAvailable = isBiometricAvailable();
+  const bioStatus = sec.webauthnId ? "Face ID / Touch ID activé ✓" : (bioAvailable ? "Face ID / Touch ID non configuré" : "Face ID / Touch ID indisponible sur cet appareil");
+  container.innerHTML = `
+    <p class="muted small">Verrouillage activé — code défini${sec.webauthnId ? ' + biométrie' : ''}.</p>
+    <p class="muted small">${bioStatus}</p>
+    ${!sec.webauthnId && bioAvailable ? '<button type="button" class="btn btn-secondary btn-block" id="btn-security-bio">Activer Face ID / Touch ID</button>' : ''}
+    <button type="button" class="btn btn-secondary btn-block" id="btn-security-pin">Modifier le code</button>
+    <button type="button" class="btn btn-danger btn-block" id="btn-security-disable">Désactiver le verrouillage</button>
+  `;
+  const bioBtn = document.getElementById('btn-security-bio');
+  if (bioBtn) bioBtn.addEventListener('click', async () => {
+    const credId = await registerBiometric();
+    if (credId) {
+      DATA.security.webauthnId = credId;
+      saveData(DATA);
+      showToast('Face ID / Touch ID activé');
+      renderSecuritySection();
+    } else {
+      showToast("Échec de l'activation");
+    }
+  });
+  document.getElementById('btn-security-pin').addEventListener('click', openPinSetupModal);
+  document.getElementById('btn-security-disable').addEventListener('click', () => {
+    if (!confirm('Désactiver le verrouillage de la section Évolution ?')) return;
+    DATA.security = defaultSecurity();
+    saveData(DATA);
+    renderSecuritySection();
+    showToast('Verrouillage désactivé');
+  });
+}
+
+function openPinSetupModal() {
+  openModal(`
+    <div class="modal-title">Définir un code à 4 chiffres</div>
+    <form id="form-pin-setup" class="form-grid">
+      <label>Nouveau code
+        <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" id="pin-new" required autocomplete="off">
+      </label>
+      <label>Confirme le code
+        <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" id="pin-confirm" required autocomplete="off">
+      </label>
+      <p class="pin-error" id="pin-setup-error"></p>
+      <button type="submit" class="btn btn-primary btn-block">Enregistrer</button>
+    </form>
+  `);
+  document.getElementById('form-pin-setup').addEventListener('submit', async e => {
+    e.preventDefault();
+    const a = document.getElementById('pin-new').value.trim();
+    const b = document.getElementById('pin-confirm').value.trim();
+    const err = document.getElementById('pin-setup-error');
+    if (!/^\d{4}$/.test(a)) { err.textContent = 'Le code doit faire 4 chiffres.'; return; }
+    if (a !== b) { err.textContent = 'Les deux codes ne correspondent pas.'; return; }
+    try {
+      const hash = await hashPin(a);
+      DATA.security.pinHash = hash;
+      DATA.security.enabled = true;
+      saveData(DATA);
+      if (!DATA.security.enabled || DATA.security.pinHash !== hash) {
+        throw new Error('Échec de la sauvegarde locale.');
+      }
+      closeModal();
+      renderSecuritySection();
+      showToast('Code enregistré — verrouillage activé');
+    } catch (err2) {
+      err.textContent = 'Erreur : ' + err2.message + ' — réessaie.';
+    }
+  });
 }
 
 /* ===== Câblage des événements (une seule fois) ===== */
@@ -534,6 +776,67 @@ function wireEvents() {
     currentCaloriesDate = todayISO();
     renderCalories();
     openAddMealModal(currentCaloriesDate);
+  });
+  document.getElementById('home-water-add250').addEventListener('click', () => {
+    const log = ensureLog(DATA, todayISO());
+    log.water.ml = (log.water.ml || 0) + 250;
+    saveData(DATA);
+    renderAccueil();
+  });
+  document.getElementById('home-water-add500').addEventListener('click', () => {
+    const log = ensureLog(DATA, todayISO());
+    log.water.ml = (log.water.ml || 0) + 500;
+    saveData(DATA);
+    renderAccueil();
+  });
+  document.getElementById('home-water-reset').addEventListener('click', () => {
+    const log = ensureLog(DATA, todayISO());
+    log.water.ml = 0;
+    saveData(DATA);
+    renderAccueil();
+  });
+  document.getElementById('home-btn-evolution').addEventListener('click', openEvolution);
+
+  /* --- Évolution --- */
+  document.getElementById('evolution-back').addEventListener('click', () => navigate(screenBeforeEvolution));
+  document.getElementById('btn-unlock-biometric').addEventListener('click', attemptBiometricUnlock);
+  document.getElementById('btn-unlock-pin').addEventListener('click', async () => {
+    const val = document.getElementById('pin-input').value.trim();
+    const err = document.getElementById('pin-error');
+    if (!/^\d{4}$/.test(val)) { err.textContent = 'Code à 4 chiffres.'; return; }
+    const h = await hashPin(val);
+    if (h === DATA.security.pinHash) {
+      unlockEvolution();
+    } else {
+      err.textContent = 'Code incorrect.';
+      document.getElementById('pin-input').value = '';
+    }
+  });
+  document.getElementById('pin-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btn-unlock-pin').click();
+  });
+  document.getElementById('btn-lock-now').addEventListener('click', () => {
+    evoUnlocked = false;
+    revokeEvoObjectUrls();
+    document.getElementById('pin-input').value = '';
+    document.getElementById('pin-error').textContent = '';
+    renderEvolutionGate();
+  });
+  document.getElementById('btn-evo-camera').addEventListener('click', () => document.getElementById('evo-camera-input').click());
+  document.getElementById('btn-evo-gallery').addEventListener('click', () => document.getElementById('evo-gallery-input').click());
+  document.getElementById('evo-camera-input').addEventListener('change', e => {
+    if (e.target.files.length) addEvoFiles(e.target.files);
+    e.target.value = '';
+  });
+  document.getElementById('evo-gallery-input').addEventListener('change', e => {
+    if (e.target.files.length) addEvoFiles(e.target.files);
+    e.target.value = '';
+  });
+  document.getElementById('btn-evo-export').addEventListener('click', exportEvoMedia);
+  document.getElementById('evo-grid').addEventListener('click', e => {
+    const item = e.target.closest('[data-action="evo-open"]');
+    if (!item) return;
+    openEvoViewer(item.dataset.id);
   });
 
   /* --- Calendrier --- */
@@ -597,7 +900,7 @@ function wireEvents() {
     const log = ensureLog(DATA, currentJourDate);
     const exId = btn.dataset.exId;
     if (action === 'history') {
-      openExerciseHistory(exId, btn.dataset.exName);
+      openExerciseHistory(btn.dataset.exName);
     } else if (action === 'add-set') {
       log.exercises[exId].sets.push({ poids: '', reps: '' });
       saveData(DATA);
@@ -670,6 +973,7 @@ function wireEvents() {
     p.niveauActivite = document.getElementById('p-activite').value;
     p.objectifCalories = Number(document.getElementById('p-cal').value);
     p.objectifProteines = Number(document.getElementById('p-prot').value);
+    p.objectifEauMl = Math.round(Number(document.getElementById('p-eau').value) * 1000);
     const poidsVal = Number(document.getElementById('p-poids').value);
     upsertWeight(todayISO(), poidsVal);
     saveData(DATA);
@@ -700,9 +1004,39 @@ function wireEvents() {
       saveData(DATA);
       renderProgramEditor();
     } else if (btn.dataset.action === 'add-ex') {
-      plan.exercises.push(ex('Nouvel exercice', 'Autre'));
+      const newEx = ex('Nouvel exercice', 'Autre');
+      plan.exercises.push(newEx);
       saveData(DATA);
       renderProgramEditor();
+      const newInput = programEditor.querySelector(`input[data-ex-id="${newEx.id}"]`);
+      if (newInput) { newInput.focus(); newInput.select(); }
+    } else if (btn.dataset.action === 'ex-copy') {
+      const wrap = btn.closest('.ex-name-wrap');
+      const input = wrap.querySelector('input[type="text"]');
+      const text = input.value;
+      const flashCheck = () => {
+        const iconCopy = btn.querySelector('.icon-copy');
+        const iconCheck = btn.querySelector('.icon-check');
+        iconCopy.style.display = 'none';
+        iconCheck.style.display = '';
+        clearTimeout(btn._resetTimer);
+        btn._resetTimer = setTimeout(() => { iconCopy.style.display = ''; iconCheck.style.display = 'none'; }, 1200);
+      };
+      const legacyCopy = () => {
+        input.focus();
+        input.setSelectionRange(0, text.length);
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+        input.blur();
+        const sel = window.getSelection();
+        if (sel) sel.removeAllRanges();
+        if (ok) flashCheck();
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(flashCheck, legacyCopy);
+      } else {
+        legacyCopy();
+      }
     }
   });
 
