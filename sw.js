@@ -1,6 +1,6 @@
 /* Service worker : mise en cache de l'app shell pour un fonctionnement 100% hors-ligne. */
 
-const CACHE_NAME = 'fittrack-cache-v13';
+const CACHE_NAME = 'fittrack-cache-v15';
 const ASSETS = [
   './',
   './index.html',
@@ -33,19 +33,20 @@ self.addEventListener('activate', event => {
   );
 });
 
+// Réseau en priorité (pour toujours servir la dernière version déployée), avec le cache
+// comme filet de secours uniquement si la requête réseau échoue (hors-ligne).
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
 
   event.respondWith(
-    caches.match(event.request).then(cached => {
-      const network = fetch(event.request).then(response => {
-        if (response && response.ok) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-        }
-        return response;
-      }).catch(() => cached || caches.match('./index.html'));
-      return cached || network;
-    })
+    fetch(event.request).then(response => {
+      if (response && response.ok) {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+      }
+      return response;
+    }).catch(() =>
+      caches.match(event.request).then(cached => cached || caches.match('./index.html'))
+    )
   );
 });

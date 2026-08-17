@@ -88,11 +88,27 @@ function syncLogWithPlan(dateISO) {
   const log = ensureLog(DATA, dateISO);
   const dayKey = getDayKey(dateISO);
   const plan = DATA.program[dayKey];
+  const planIds = new Set(plan.exercises.map(e => e.id));
+
   plan.exercises.forEach(e => {
-    if (!log.exercises[e.id]) {
+    if (log.exercises[e.id]) {
+      // Déjà présent aujourd'hui : on garde les séries/le "fait", mais on remet à jour
+      // le nom/groupe au cas où l'exercice a été renommé depuis dans Réglages.
+      log.exercises[e.id].name = e.name;
+      log.exercises[e.id].groupe = e.groupe;
+    } else {
       const lastSets = findLastSetsByName(DATA, e.name, dateISO);
       log.exercises[e.id] = { done: false, sets: lastSets || [], name: e.name, groupe: e.groupe };
     }
+  });
+
+  // Retire les exercices supprimés du programme, sauf s'ils ont déjà des données réelles
+  // (des séries saisies ou cochés "fait") qu'on ne veut pas perdre.
+  Object.keys(log.exercises).forEach(exId => {
+    if (planIds.has(exId)) return;
+    const e = log.exercises[exId];
+    const hasRealData = e.done || (e.sets && e.sets.some(s => s.poids || s.reps));
+    if (!hasRealData) delete log.exercises[exId];
   });
 }
 
